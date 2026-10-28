@@ -90,6 +90,7 @@ def _install_stub_modules() -> dict[str, types.ModuleType]:
 class ConnectionLifecycleTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
+        cls._preexisting_modules = set(sys.modules)
         cls._saved_modules = _install_stub_modules()
         from netbox_plugin_bind_provisioner.service.endpoint import request_handler
 
@@ -109,6 +110,20 @@ class ConnectionLifecycleTests(unittest.TestCase):
         cmd_mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(cmd_mod)
         cls.cmd_mod = cmd_mod
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        for name in list(sys.modules):
+            if (
+                name.startswith("netbox_plugin_bind_provisioner")
+                and name not in cls._preexisting_modules
+            ):
+                sys.modules.pop(name, None)
+        for name, original in cls._saved_modules.items():
+            if original is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = original
 
     def setUp(self) -> None:
         self.request_handler.close_old_connections.reset_mock()
