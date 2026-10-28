@@ -13,6 +13,7 @@ import dns.renderer
 
 from django.core.management.base import BaseCommand
 from django.conf import settings
+from django.db import connection
 from netbox_dns.models import View
 from netbox_plugin_bind_provisioner.service.endpoint.request_handler import UDPRequestHandler, TCPRequestHandler
 from netbox_plugin_bind_provisioner.service.endpoint.dns_server import UDPDNSServer, TCPDNSServer
@@ -94,6 +95,9 @@ class Command(BaseCommand):
         # Initialize settings
         self.load_settings()
         self.load_tsig_key_settings()
+        # Close the startup DB connection on the main (TCP) thread so it does
+        # not remain open indefinitely while waiting for infrequent AXFR requests.
+        connection.close()
 
         udp_server = UDPDNSServer(
             (address, port), UDPRequestHandler, self.keyring, self.tsig_view_map
