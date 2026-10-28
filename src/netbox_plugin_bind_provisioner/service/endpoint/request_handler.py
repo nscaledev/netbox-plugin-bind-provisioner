@@ -11,6 +11,7 @@ import dns.rdataclass
 import dns.rdtypes
 import dns.exception
 import dns.renderer
+from django.db import close_old_connections, connection
 from netbox_dns.models import Zone, Record
 from netbox_dns.choices import ZoneStatusChoices, RecordStatusChoices
 from . import catalog_zone_manager as catzm
@@ -332,6 +333,12 @@ class DNSBaseRequestHandler(socketserver.BaseRequestHandler):
 
         logger.info(f"Request from {peer}: key={key_name} resolved to view='{nb_view.name}'")
 
+        # Management commands do not emit Django's request_started/finished signals.
+        # close_old_connections() keeps healthy connections open for reuse until
+        # CONN_MAX_AGE (5m) expires, and closes broken connections (errors_occurred)
+        # so the next query reconnects automatically after a PostgreSQL disconnect.
+        close_old_connections()
+
         # Check if catalog zone
         if dname == "catz" or dname == f"{nb_view.name}.catz":
             logger.info(f"Request from {peer}: serving catalog zone '{dname}' for view='{nb_view.name}'")
@@ -420,4 +427,11 @@ class TCPRequestHandler(DNSBaseRequestHandler):
             logger.error(f"Error handling request from {peer}: {e}")
             import traceback
             traceback.print_exc()
+        finally:
+            # Unlike UDP SOA polls (which run every 10-20s on udp_thread and reuse
+            # their DB connection up to CONN_MAX_AGE), TCP AXFR transfers run on the
+            # main thread only when a zone serial changes (often hours/days apart).
+            # Close the main-thread DB connection when the TCP session ends so it
+            # does not sit open indefinitely between zone transfers.
+            connection.close()
 
